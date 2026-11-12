@@ -1456,9 +1456,14 @@ async function attempt(ctx, opts) {
     var body = k.read(fn, 80);
     if (!body) return;
 
+    say("[dbg] handler rva 0x" + fnRva.toString(16) + " body "
+        + Array.from(body.slice(0, 16)).map(function (b) {
+            return b.toString(16).padStart(2, "0");
+          }).join(" "));
+
     var target = null;
     for (var i = 0; i < body.length - 6; i++) {
-      if (body[i] === 0xe8 && body[i + 5] === 0x85) {
+      if (body[i] === 0xe8 && body[i + 5] === 0x85 && body[i + 6] === 0xc0) {
         var d = body[i+1] | (body[i+2]<<8) | (body[i+3]<<16) | (body[i+4]<<24);
         if (d >= 0x80000000) d -= 0x100000000;
         var ct = fnRva + i + 5 + d;
@@ -1474,7 +1479,7 @@ async function attempt(ctx, opts) {
 
     var target2 = null;
     for (var j = i + 5; j < body.length - 6; j++) {
-      if (body[j] === 0xe8 && body[j + 5] === 0x85) {
+      if (body[j] === 0xe8 && body[j + 5] === 0x85 && body[j + 6] === 0xc0) {
         var d2 = body[j+1] | (body[j+2]<<8) | (body[j+3]<<16) | (body[j+4]<<24);
         if (d2 >= 0x80000000) d2 -= 0x100000000;
         var ct2 = fnRva + j + 5 + d2;
