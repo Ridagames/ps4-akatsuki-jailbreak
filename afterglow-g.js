@@ -1310,19 +1310,19 @@ async function attempt(ctx, opts) {
       if (expect1 < 0) continue;
       if (cur && cur[0] === expect1) continue;
 
-      let best = -1;
+      let best = null;
       for (let s = 0; s < SHIFTS.length; s++) {
         const t = k.read(kat(off + SHIFTS[s]), 1);
         if (t && t[0] === expect1) { best = SHIFTS[s]; break; }
       }
-      if (best < 0) {
+      if (best === null) {
         for (let d = -0x800; d <= 0x800; d += 16) {
           if (d === 0) continue;
           const t = k.read(kat(off + d), 1);
           if (t && t[0] === expect1) { best = d; break; }
         }
       }
-      if (best !== -1) {
+      if (best !== null) {
         say("[7b] " + PATCHES[i][2] + " shifted " + (best > 0 ? "+" : "") + best
             + " -> 0x" + (off + best).toString(16));
         PATCHES[i][0] = off + best;
