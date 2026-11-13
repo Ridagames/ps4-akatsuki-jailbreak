@@ -1227,13 +1227,17 @@ async function attempt(ctx, opts) {
   }
   const boot = unhex(BOOTSTRAP);
   if (K.anchor === 0xe6c30) {
+    let fixed = 0;
     for (let bi = 0; bi < boot.length - 6; bi++) {
       if (boot[bi] === 0xc6 && boot[bi+1] === 0x81 && boot[bi+3] === 0xaa
           && boot[bi+4] === 0x1f && boot[bi+5] === 0x00 && boot[bi+6] === 0x37) {
         boot[bi+3] = 0xae;
+        fixed++;
         say("[5b] bootstrap fixup: offset byte at +" + bi + " shifted aa->ae (+0x400)");
+        break; /* UNE SEULE FOIS */
       }
     }
+    if (fixed === 0) say("[5b] bootstrap fixup: aucune occurrence trouvee");
   }
 
   wrbuf(hostFree, boot);
@@ -1290,37 +1294,16 @@ async function attempt(ctx, opts) {
     return false;
   };
 
-  /* --- patches: chaque site logue son etat, un site manque ne bloque plus --- */
+  /* --- patches: un site deja pose est saute, sinon on patche a l'offset d'origine --- */
   {
-    const SHIFTS = [0, 16, 768, 864, 880, 992, 1024, 1152, 1200, 1280];
-    let adj = 0;
     for (let i = 0; i < PATCHES.length; i++) {
       const off = PATCHES[i][0];
       const nb = unhex(PATCHES[i][1]);
       const cur = k.read(kat(off), nb.length);
       if (cur && sameBytes(cur, nb)) { say("[7b] " + PATCHES[i][2] + " deja pose"); continue; }
-
-      let expect1 = (nb[0] === 0xEB) ? 0x75 : -1;
-      if (nb[0] === 0x90 && nb.length > 1 && nb[1] === 0xE9) expect1 = 0x0F;
-
-      if (expect1 < 0) continue;
-      if (cur && cur[0] === expect1) continue;
-
-      let best = -1;
-      for (let s = 0; s < SHIFTS.length; s++) {
-        const t = k.read(kat(off + SHIFTS[s]), 1);
-        if (t && t[0] === expect1) { best = SHIFTS[s]; break; }
-      }
-      if (best > 0) {
-        say("[7b] " + PATCHES[i][2] + " decale +" + best + " -> 0x" + (off + best).toString(16));
-        PATCHES[i][0] = off + best;
-        adj++;
-      } else {
-        say("[7b] " + PATCHES[i][2] + " INTROUVABLE a 0x" + off.toString(16)
-            + " (attendu 0x" + expect1.toString(16) + ", lu 0x" + (cur ? cur[0].toString(16) : "??") + ")");
-      }
+      say("[7b] " + PATCHES[i][2] + " a patcher a 0x" + off.toString(16)
+          + " (lu 0x" + (cur ? cur[0].toString(16) : "??") + ")");
     }
-    if (adj > 0) say("[7b] " + adj + " offset(s) ajuste(s) pour ce firmware");
   }
 
   if (!k.apply(kbase, PATCHES)) { return failOut("[8] the patch pass did not return"); }
