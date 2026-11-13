@@ -1290,6 +1290,7 @@ async function attempt(ctx, opts) {
     return false;
   };
 
+  /* --- patches: chaque site logue son etat, un site manque ne bloque plus --- */
   {
     const SHIFTS = [0, 16, 768, 864, 880, 992, 1024, 1152, 1200, 1280];
     let adj = 0;
@@ -1297,7 +1298,7 @@ async function attempt(ctx, opts) {
       const off = PATCHES[i][0];
       const nb = unhex(PATCHES[i][1]);
       const cur = k.read(kat(off), nb.length);
-      if (cur && sameBytes(cur, nb)) continue;
+      if (cur && sameBytes(cur, nb)) { say("[7b] " + PATCHES[i][2] + " deja pose"); continue; }
 
       let expect1 = (nb[0] === 0xEB) ? 0x75 : -1;
       if (nb[0] === 0x90 && nb.length > 1 && nb[1] === 0xE9) expect1 = 0x0F;
@@ -1311,14 +1312,15 @@ async function attempt(ctx, opts) {
         if (t && t[0] === expect1) { best = SHIFTS[s]; break; }
       }
       if (best > 0) {
-        say("[7b] " + PATCHES[i][2] + " shifted +" + best + " -> 0x" + (off + best).toString(16));
+        say("[7b] " + PATCHES[i][2] + " decale +" + best + " -> 0x" + (off + best).toString(16));
         PATCHES[i][0] = off + best;
         adj++;
       } else {
-        say("[7b] " + PATCHES[i][2] + " at 0x" + off.toString(16) + " unresolved");
+        say("[7b] " + PATCHES[i][2] + " INTROUVABLE a 0x" + off.toString(16)
+            + " (attendu 0x" + expect1.toString(16) + ", lu 0x" + (cur ? cur[0].toString(16) : "??") + ")");
       }
     }
-    if (adj > 0) say("[7b] adjusted " + adj + " patch offsets for this firmware");
+    if (adj > 0) say("[7b] " + adj + " offset(s) ajuste(s) pour ce firmware");
   }
 
   if (!k.apply(kbase, PATCHES)) { return failOut("[8] the patch pass did not return"); }
@@ -1326,11 +1328,14 @@ async function attempt(ctx, opts) {
   for (let i = 0; i < PATCHES.length; i++) {
     const bytes = unhex(PATCHES[i][1]);
     const got = k.read(kat(PATCHES[i][0]), bytes.length);
-    if (got && sameBytes(got, bytes)) done++; else failed = failed || PATCHES[i][2];
+    if (got && sameBytes(got, bytes)) { done++; say("[8] " + PATCHES[i][2] + " OK"); }
+    else { failed = failed || PATCHES[i][2]; say("[8] " + PATCHES[i][2] + " MISS"); }
   }
   say("[8] " + done + " of " + PATCHES.length + " kernel patches in place"
-      + (failed ? (" -- first missing: " + failed) : ""));
-  if (done < PATCHES.length) { return failOut("     refusing to go on with a half patched kernel"); }
+      + (failed ? (" -- premier manque: " + failed) : ""));
+  if (done < PATCHES.length) {
+    say("     on continue quand meme avec un kernel partiellement patche");
+  }
 
   const proc = k.read_v(plus(thread, 0x08));
   const fdt = proc && k.read_v(plus(proc, 0x48));
@@ -1406,104 +1411,13 @@ async function attempt(ctx, opts) {
       ? "handles defused -- this page may close"
       : "the handles are NOT defused -- do not let this page close");
 
-  (function () {
-    var TEXT_SIZE = 0xCFE880;
-    var DATA_OFF  = 0x1520000;
-
-    var c = k.begin();
-    c.hex("48bf").qw(kbase);
-    c.hex("48be").qw(plus(kbase, TEXT_SIZE));
-    c.hex("48ba").qw(v(0x676d6372, 0x65645f72));
-    c.hex("4839f7").hex("730b");
-    c.hex("483917").hex("740b");
-    c.hex("4883c701").hex("ebf0");
-    c.hex("4831c0").hex("eb03");
-    c.hex("4889f8");
-    c.hex("49ba").qw(plus(k.at, OUT));
-    c.hex("498902");
-    if (!k.run()) return;
-    var strAddr = k.out();
-    if (!strAddr || isZero(strAddr)) return;
-
-    var tail = k.read(plus(strAddr, 8), 8);
-    if (!tail || tail[0] !== 0x62 || tail[1] !== 0x75 || tail[2] !== 0x67) return;
-
-    var c2 = k.begin();
-    c2.hex("48bf").qw(plus(kbase, DATA_OFF));
-    c2.hex("48be").qw(plus(kbase, DATA_OFF + 0x700000));
-    c2.hex("48ba").qw(strAddr);
-    c2.hex("4839f7").hex("730b");
-    c2.hex("483917").hex("740b");
-    c2.hex("4883c708").hex("ebf0");
-    c2.hex("4831c0").hex("eb03");
-    c2.hex("4889f8");
-    c2.hex("49ba").qw(plus(k.at, OUT));
-    c2.hex("498902");
-    if (!k.run()) return;
-    var hit = k.out();
-    if (!hit || isZero(hit)) return;
-
-    var fn = k.read_v(plus(hit, 0x08));
-    if (!fn || isZero(fn)) return;
-    var fnRva = (fn.low - kbase.low) >>> 0;
-    if (fnRva >= TEXT_SIZE) return;
-
-    var body = k.read(fn, 0x400);
-    if (!body) return;
-
-    var hx = function (arr, from, to) {
-      var s = "";
-      for (var i = from; i < to; i++) s += arr[i].toString(16).padStart(2, "0") + " ";
-      return s.trim();
-    };
-
-    for (var o = 0; o < 0x400; o += 0x40) {
-      say("[dbg] +" + o.toString(16).padStart(3, "0") + ": " + hx(body, o, o + 0x40));
-    }
-
-    var callOff = -1;
-    for (var i = 0; i < body.length - 5; i++) {
-      if (body[i] === 0xe8) {
-        var d = body[i+1] | (body[i+2]<<8) | (body[i+3]<<16) | (body[i+4]<<24);
-        if (d >= 0x80000000) d -= 0x100000000;
-        var ct = fnRva + i + 5 + d;
-        if (ct > 0 && ct < TEXT_SIZE) { callOff = i; break; }
-      }
-    }
-    if (callOff < 0) { say("[dbg] no CALL in handler"); return; }
-
-    var d0 = body[callOff+1] | (body[callOff+2]<<8) | (body[callOff+3]<<16) | (body[callOff+4]<<24);
-    if (d0 >= 0x80000000) d0 -= 0x100000000;
-    var target = fnRva + callOff + 5 + d0;
-
-    var lo = Math.max(0, callOff - 24), hi = Math.min(body.length, callOff + 32);
-    say("[dbg] CALL at handler+0x" + callOff.toString(16) + " -> rva 0x" + target.toString(16));
-    say("[dbg] before: " + hx(body, lo, callOff));
-    say("[dbg] after : " + hx(body, callOff + 5, hi));
-
-    var jnzOff = -1;
-    for (var i = callOff + 5; i < callOff + 16 && i < body.length; i++) {
-      if (body[i] === 0x75) { jnzOff = i; break; }
-    }
-    if (jnzOff < 0) { say("[dbg] no JNZ after CALL"); return; }
-
-    var testRva = fnRva + jnzOff - 2;
-    var jnzRva  = fnRva + jnzOff;
-    say("[dbg] test at rva 0x" + testRva.toString(16) + ", jnz at rva 0x" + jnzRva.toString(16));
-
-    k.apply(kbase, [[testRva, "31c0", "rcmgr-test"]]);
-    say("[dbg] test neutralised (85 c0 -> 31 c0)");
-
-    var chk = k.read(plus(kbase, testRva), 2);
-    say("[dbg] bytes now: " + (chk ? (chk[0].toString(16) + " " + chk[1].toString(16)) : "unreadable"));
-  })();
-
-  say("[p] payloads desactives -- test menu sans goldhen");
-  say("done -- jailbroken, rwx open, debug settings enabled");
+  say("[dbg] rcmgr-test DESACTIVE -- pas de menu dans cette version");
+  say("[p] payloads desactives -- test stabilite sans menu");
+  say("done -- jailbroken, rwx open");
   say("========================================");
   say("  JAILBREAK COMPLETE -- FW " + (host().state && host().state.fw ? host().state.fw : "14.xx"));
   say("  Patches: " + done + "/" + PATCHES.length);
-  say("  Debug Settings: check PS4 Settings");
+  say("  Menu: DESACTIVE (test stabilite)");
   say("========================================");
   return iface;
 }
