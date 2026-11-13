@@ -1490,11 +1490,27 @@ async function attempt(ctx, opts) {
   })();
 
   say("[p] Attempting to load goldhen.bin");
+  let henOk = false;
   try {
     iface.payload = await loadPayload("goldhen.bin");
-    say(iface.payload ? "[p] goldhen.bin loaded successfully" : "[p] goldhen.bin failed to load");
+    henOk = !!iface.payload;
+    say(henOk ? "[p] goldhen.bin loaded successfully" : "[p] goldhen.bin failed to load");
   } catch (e) {
     say("[p] Error loading goldhen.bin: " + ((e && e.message) || e));
+  }
+
+  if (henOk) {
+    say("[p] Attempting to load kernel_1402.bin (kernel payload, 14.02)");
+    try {
+      iface.kpayload = await loadPayload("kernel_1402.bin");
+      say(iface.kpayload
+        ? "[p] kernel_1402.bin loaded successfully"
+        : "[p] kernel_1402.bin failed to load");
+    } catch (e) {
+      say("[p] Error loading kernel_1402.bin: " + ((e && e.message) || e));
+    }
+  } else {
+    say("[p] skipping kernel_1402.bin -- goldhen.bin did not load");
   }
 
   say("done -- jailbroken, rwx open, debug settings enabled");
