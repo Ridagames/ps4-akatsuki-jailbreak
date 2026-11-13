@@ -1395,13 +1395,20 @@ async function attempt(ctx, opts) {
       : "the handles are NOT defused -- do not let this page close");
 
   say("[dbg] rcmgr-test DESACTIVE -- pas de menu dans cette version");
-  say("[p] payloads desactives -- test stabilite sans menu");
   say("done -- jailbroken, rwx open");
   say("========================================");
   say("  JAILBREAK COMPLETE -- FW " + (host().state && host().state.fw ? host().state.fw : "14.xx"));
   say("  Patches: " + done + "/" + PATCHES.length);
-  say("  Menu: DESACTIVE (test stabilite)");
   say("========================================");
+
+  /* --- charge et lance le payload (GoldHEN) --- */
+  const payloadUrl = (ctx.params && ctx.params.get("payload"))
+    || "https://ridagames.github.io/ps4-akatsuki-jailbreak/goldhen.bin";
+  say("[p] chargement du payload: " + payloadUrl);
+  const started = await loadPayload(payloadUrl);
+  say(started ? "[p] payload LANCE (pthread_create rc=0) -- GoldHEN devrait apparaitre"
+               : "[p] payload PAS lance -- voir les lignes [p] ci-dessus");
+
   return iface;
 }
 
