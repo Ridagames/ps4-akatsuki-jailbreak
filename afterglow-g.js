@@ -105,7 +105,7 @@ function host() {
 function say(fmt) {
   host().mark("AG", fmt);
   try {
-    if (/^\[(e|g|p|t|8|9|10|kp|rw)\]/.test(fmt) || /JAILBREAK|defused|thread rc|pthread_create/.test(fmt)) {
+    if (/^\[(e|g|p|t|8|9|10|kp|rw|dbg)\]/.test(fmt) || /JAILBREAK|defused|thread rc|pthread_create/.test(fmt)) {
       fetch("ag_log?m=" + encodeURIComponent(fmt), { keepalive: true }).catch(function () {});
     }
   } catch (e) {}
@@ -1478,17 +1478,22 @@ async function attempt(ctx, opts) {
     if (target === null) { say("[dbg] no CALL+TEST in handler"); return; }
 
     var target2 = null;
-    for (var j = i + 5; j < body.length - 6; j++) {
+    for (var j = i + 6; j < body.length - 6; j++) {
       if (body[j] === 0xe8 && body[j + 5] === 0x85 && body[j + 6] === 0xc0) {
         var d2 = body[j+1] | (body[j+2]<<8) | (body[j+3]<<16) | (body[j+4]<<24);
         if (d2 >= 0x80000000) d2 -= 0x100000000;
         var ct2 = fnRva + j + 5 + d2;
-        if (ct2 > 0 && ct2 < TEXT_SIZE && ct2 !== target) {
+        if (ct2 > 0 && ct2 < TEXT_SIZE) {
           target2 = ct2;
           say("[dbg] rcmgr check2 at rva 0x" + ct2.toString(16));
           break;
         }
       }
+    }
+
+    if (target2 !== null && target2 === target) {
+      say("[dbg] check2 landed on check1 -- nudging");
+      target2 = target + 4;
     }
 
     var plist = [
@@ -1503,12 +1508,12 @@ async function attempt(ctx, opts) {
     say("debug menu enabled -- go to Settings");
   })();
 
-  say("[p] Attempting to load debug.bin");
+  say("[p] Attempting to load goldhen.bin");
   try {
     iface.payload = await loadPayload("goldhen.bin");
-    say(iface.payload ? "[p] debug.bin loaded successfully" : "[p] debug.bin failed to load");
+    say(iface.payload ? "[p] goldhen.bin loaded successfully" : "[p] goldhen.bin failed to load");
   } catch (e) {
-    say("[p] Error loading debug.bin: " + (e && e.message));
+    say("[p] Error loading goldhen.bin: " + ((e && e.message) || e));
   }
 
   say("done -- jailbroken, rwx open, debug settings enabled");
