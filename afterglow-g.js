@@ -105,7 +105,7 @@ function host() {
 function say(fmt) {
   host().mark("AG", fmt);
   try {
-    if (/^\[(e|g|p|t|8|9|10|kp|rw)\]/.test(fmt) || /JAILBREAK|defused|thread rc|pthread_create/.test(fmt)) {
+    if (/^\[(e|g|p|t|8|9|10|kp|rw|dbg)\]/.test(fmt) || /JAILBREAK|defused|thread rc|pthread_create/.test(fmt)) {
       fetch("ag_log?m=" + encodeURIComponent(fmt), { keepalive: true }).catch(function () {});
     }
   } catch (e) {}
@@ -1456,9 +1456,14 @@ async function attempt(ctx, opts) {
     var body = k.read(fn, 80);
     if (!body) return;
 
+    say("[dbg] handler rva 0x" + fnRva.toString(16) + " body "
+        + Array.from(body.slice(0, 16)).map(function (b) {
+            return b.toString(16).padStart(2, "0");
+          }).join(" "));
+
     var target = null;
     for (var i = 0; i < body.length - 6; i++) {
-      if (body[i] === 0xe8 && body[i + 5] === 0x85) {
+      if (body[i] === 0xe8 && body[i + 5] === 0x85 && body[i + 6] === 0xc0) {
         var d = body[i+1] | (body[i+2]<<8) | (body[i+3]<<16) | (body[i+4]<<24);
         if (d >= 0x80000000) d -= 0x100000000;
         var ct = fnRva + i + 5 + d;
@@ -1472,43 +1477,24 @@ async function attempt(ctx, opts) {
 
     if (target === null) { say("[dbg] no CALL+TEST in handler"); return; }
 
-    var target2 = null;
-    for (var j = i + 5; j < body.length - 6; j++) {
-      if (body[j] === 0xe8 && body[j + 5] === 0x85) {
-        var d2 = body[j+1] | (body[j+2]<<8) | (body[j+3]<<16) | (body[j+4]<<24);
-        if (d2 >= 0x80000000) d2 -= 0x100000000;
-        var ct2 = fnRva + j + 5 + d2;
-        if (ct2 > 0 && ct2 < TEXT_SIZE && ct2 !== target) {
-          target2 = ct2;
-          say("[dbg] rcmgr check2 at rva 0x" + ct2.toString(16));
-          break;
-        }
-      }
-    }
+    var check = k.read(plus(kbase, target), 8);
+    if (!check) { say("[dbg] rcmgr check unreadable"); return; }
+    say("[dbg] rcmgr check body "
+        + Array.from(check).map(function (b) {
+            return b.toString(16).padStart(2, "0");
+          }).join(" "));
 
-    var plist = [
-      [target, "b8010000", "rcmgr1a"],
-      [target + 4, "00c3", "rcmgr1b"]
-    ];
-    if (target2 !== null) {
-      plist.push([target2, "b8010000", "rcmgr2a"]);
-      plist.push([target2 + 4, "00c3", "rcmgr2b"]);
-    }
+    var plist = [[target, "b8010000", "rcmgr1a"], [target + 4, "00c3", "rcmgr1b"]];
     k.apply(kbase, plist);
-    say("debug menu enabled -- go to Settings");
+    say("[dbg] debug menu enabled -- go to Settings");
   })();
 
-  /* ---- Load debug.bin payload ---- */
-  say("[p] Attempting to load debug.bin");
+  say("[p] Attempting to load goldhen.bin");
   try {
-    iface.payload = await loadPayload("debug.bin");
-    if (iface.payload) {
-      say("[p] debug.bin loaded successfully");
-    } else {
-      say("[p] debug.bin failed to load");
-    }
+    iface.payload = await loadPayload("goldhen.bin");
+    say(iface.payload ? "[p] goldhen.bin loaded successfully" : "[p] goldhen.bin failed to load");
   } catch (e) {
-    say("[p] Error loading debug.bin: " + (e && e.message));
+    say("[p] Error loading goldhen.bin: " + ((e && e.message) || e));
   }
 
   say("done -- jailbroken, rwx open, debug settings enabled");
@@ -1533,13 +1519,11 @@ async function fetchBytes(url, tag) {
   }
 }
 
-async function loadPayload(url, vorab) {
+async function loadPayload(url) {
   const c = host();
-  let blob = vorab || null;
-  if (blob === null) {
-    blob = await fetchBytes(url, "p");
-    if (blob === null) return false;
-  }
+  const blob = await fetchBytes(url, "p");
+  if (blob === null) return false;
+  say("[p] got " + blob.length + " bytes, first=0x" + (blob[0] || 0).toString(16));
 
   if (!blob.length) { say("[p] " + url + " is empty"); return false; }
   if (blob[0] !== 0xe9) {
@@ -1553,7 +1537,7 @@ async function loadPayload(url, vorab) {
   if (m.i32 === -1 || (entry.hi >>> 0) === 0) {
     say("[p] mmap failed, errno " + c.errno()); return false;
   }
-  
+
   for (let o = 0; o < size; o += 0x1000) wr4(plus(entry, o), 0);
   if (sc(S.mprotect, entry, size, 7).i32 !== 0) {
     say("[p] mprotect rwx failed, errno " + c.errno()); return false;
@@ -1580,12 +1564,12 @@ async function loadPayload(url, vorab) {
       say("[p] copy mismatch at 0x" + o.toString(16)); return false;
     }
   }
-  
+
   for (let o = 0; o < 10; o++) wr1(plus(entry, 0x1068 + o), 0x90);
   wr1(plus(entry, 0x3490), 0x00); wr1(plus(entry, 0x3491), 0x0d);
   wr1(plus(entry, 0x3492), 0x52); wr1(plus(entry, 0x3493), 0x01);
   say("[p] console-output write NOP'd (0x1068), M_TEMP -> 0x1520d00 (0x3490)");
-  
+
   for (let o = 0; o < 4; o++) wr1(plus(entry, 0x1136 + o), 0x90);
   say("[p] kpayload entry call NOP'd (0x1136) -- loader-only run");
   say("[p] payload copied and verified, starting thread");
