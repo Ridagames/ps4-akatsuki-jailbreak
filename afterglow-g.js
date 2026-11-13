@@ -128,7 +128,8 @@ function seedStubs() {
   if (!base) return Array.from(need);
 
   const limit = (c.off && c.off.k_scan_stage1) || 0x200000;
-  for (let o = 0; o < limit && need.size; o += 16) {
+  /* pas de 1 : les stubs ne sont pas alignes sur 16 */
+  for (let o = 0; o < limit && need.size; o++) {
     const q = c.p.read8(base.add32(o));
     if ((q.low & 0x00ffffff) !== 0xc0c748 || (q.hi >>> 24) !== 0x49) continue;
     const n = ((q.low >>> 24) | ((q.hi & 0x00ffffff) << 8)) >>> 0;
@@ -1234,10 +1235,9 @@ async function attempt(ctx, opts) {
         boot[bi+3] = 0xae;
         fixed++;
         say("[5b] bootstrap fixup: offset byte at +" + bi + " shifted aa->ae (+0x400)");
-        break; /* UNE SEULE FOIS */
       }
     }
-    if (fixed === 0) say("[5b] bootstrap fixup: aucune occurrence trouvee");
+    say("[5b] " + fixed + " offset(s) corrige(s) dans le bootstrap");
   }
 
   wrbuf(hostFree, boot);
