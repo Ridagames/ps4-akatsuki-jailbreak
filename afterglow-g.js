@@ -1477,35 +1477,16 @@ async function attempt(ctx, opts) {
 
     if (target === null) { say("[dbg] no CALL+TEST in handler"); return; }
 
-    var target2 = null;
-    for (var j = i + 6; j < body.length - 6; j++) {
-      if (body[j] === 0xe8 && body[j + 5] === 0x85 && body[j + 6] === 0xc0) {
-        var d2 = body[j+1] | (body[j+2]<<8) | (body[j+3]<<16) | (body[j+4]<<24);
-        if (d2 >= 0x80000000) d2 -= 0x100000000;
-        var ct2 = fnRva + j + 5 + d2;
-        if (ct2 > 0 && ct2 < TEXT_SIZE) {
-          target2 = ct2;
-          say("[dbg] rcmgr check2 at rva 0x" + ct2.toString(16));
-          break;
-        }
-      }
-    }
+    var check = k.read(plus(kbase, target), 8);
+    if (!check) { say("[dbg] rcmgr check unreadable"); return; }
+    say("[dbg] rcmgr check body "
+        + Array.from(check).map(function (b) {
+            return b.toString(16).padStart(2, "0");
+          }).join(" "));
 
-    if (target2 !== null && target2 === target) {
-      say("[dbg] check2 landed on check1 -- nudging");
-      target2 = target + 4;
-    }
-
-    var plist = [
-      [target, "b8010000", "rcmgr1a"],
-      [target + 4, "00c3", "rcmgr1b"]
-    ];
-    if (target2 !== null) {
-      plist.push([target2, "b8010000", "rcmgr2a"]);
-      plist.push([target2 + 4, "00c3", "rcmgr2b"]);
-    }
+    var plist = [[target, "b8010000", "rcmgr1a"], [target + 4, "00c3", "rcmgr1b"]];
     k.apply(kbase, plist);
-    say("debug menu enabled -- go to Settings");
+    say("[dbg] debug menu enabled -- go to Settings");
   })();
 
   say("[p] Attempting to load goldhen.bin");
