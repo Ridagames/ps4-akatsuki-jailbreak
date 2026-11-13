@@ -1483,6 +1483,14 @@ async function attempt(ctx, opts) {
     say("[dbg] CALL at handler+0x" + callOff.toString(16) + " -> rva 0x" + target.toString(16));
     say("[dbg] before: " + hx(body, lo, callOff));
     say("[dbg] after : " + hx(body, callOff + 5, hi));
+
+    var jnzRva = fnRva + callOff + 7;
+    var plist = [[jnzRva, "eb", "rcmgr-jnz"]];
+    k.apply(kbase, plist);
+    say("[dbg] forced branch at rva 0x" + jnzRva.toString(16) + " (75 -> eb) -- go to Settings");
+
+    var chk = k.read(plus(kbase, jnzRva), 1);
+    say("[dbg] byte now: " + (chk ? chk[0].toString(16) : "unreadable"));
   })();
 
   say("[p] Attempting to load goldhen.bin");
