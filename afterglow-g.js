@@ -1503,39 +1503,7 @@ async function attempt(ctx, opts) {
     say("[dbg] bytes now: " + (chk ? (chk[0].toString(16) + " " + chk[1].toString(16)) : "unreadable"));
   })();
 
-  say("[p] Attempting to load goldhen.bin");
-  let henOk = false;
-  try {
-    iface.payload = await loadPayload("goldhen.bin");
-    henOk = !!iface.payload;
-    say(henOk ? "[p] goldhen.bin loaded successfully" : "[p] goldhen.bin failed to load");
-  } catch (e) {
-    say("[p] Error loading goldhen.bin: " + ((e && e.message) || e));
-  }
-
-  if (henOk) {
-    const uid = sc(S.getuid).i32;
-    say("[p] post-goldhen uid=" + uid + " (0 = payload a tourne)");
-    if (uid !== 0) {
-      say("[p] goldhen.bin n'a pas pris effet -- on ne lance pas kernel_1402.bin");
-      henOk = false;
-    }
-  }
-
-  if (henOk) {
-    say("[p] Attempting to load kernel_1402.bin (kernel payload, 14.02)");
-    try {
-      iface.kpayload = await loadPayload("kernel_1402.bin");
-      say(iface.kpayload
-        ? "[p] kernel_1402.bin loaded successfully"
-        : "[p] kernel_1402.bin failed to load");
-    } catch (e) {
-      say("[p] Error loading kernel_1402.bin: " + ((e && e.message) || e));
-    }
-  } else {
-    say("[p] skipping kernel_1402.bin -- goldhen.bin did not load");
-  }
-
+  say("[p] payloads desactives -- test menu sans goldhen");
   say("done -- jailbroken, rwx open, debug settings enabled");
   say("========================================");
   say("  JAILBREAK COMPLETE -- FW " + (host().state && host().state.fw ? host().state.fw : "14.xx"));
