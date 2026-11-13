@@ -1453,40 +1453,36 @@ async function attempt(ctx, opts) {
     var fnRva = (fn.low - kbase.low) >>> 0;
     if (fnRva >= TEXT_SIZE) return;
 
-    var body = k.read(fn, 80);
+    var body = k.read(fn, 0x200);
     if (!body) return;
 
-    say("[dbg] handler rva 0x" + fnRva.toString(16) + " body "
-        + Array.from(body.slice(0, 16)).map(function (b) {
-            return b.toString(16).padStart(2, "0");
-          }).join(" "));
+    var hx = function (arr, from, to) {
+      var s = "";
+      for (var i = from; i < to; i++) s += arr[i].toString(16).padStart(2, "0") + " ";
+      return s.trim();
+    };
 
-    var target = null;
-    for (var i = 0; i < body.length - 6; i++) {
-      if (body[i] === 0xe8 && body[i + 5] === 0x85 && body[i + 6] === 0xc0) {
+    say("[dbg] handler rva 0x" + fnRva.toString(16) + " first 32: " + hx(body, 0, 32));
+
+    var callOff = -1;
+    for (var i = 0; i < body.length - 5; i++) {
+      if (body[i] === 0xe8) {
         var d = body[i+1] | (body[i+2]<<8) | (body[i+3]<<16) | (body[i+4]<<24);
         if (d >= 0x80000000) d -= 0x100000000;
         var ct = fnRva + i + 5 + d;
-        if (ct > 0 && ct < TEXT_SIZE) {
-          target = ct;
-          say("[dbg] rcmgr check at rva 0x" + ct.toString(16));
-          break;
-        }
+        if (ct > 0 && ct < TEXT_SIZE) { callOff = i; break; }
       }
     }
+    if (callOff < 0) { say("[dbg] no CALL in handler"); return; }
 
-    if (target === null) { say("[dbg] no CALL+TEST in handler"); return; }
+    var d0 = body[callOff+1] | (body[callOff+2]<<8) | (body[callOff+3]<<16) | (body[callOff+4]<<24);
+    if (d0 >= 0x80000000) d0 -= 0x100000000;
+    var target = fnRva + callOff + 5 + d0;
 
-    var check = k.read(plus(kbase, target), 8);
-    if (!check) { say("[dbg] rcmgr check unreadable"); return; }
-    say("[dbg] rcmgr check body "
-        + Array.from(check).map(function (b) {
-            return b.toString(16).padStart(2, "0");
-          }).join(" "));
-
-    var plist = [[target, "b8010000", "rcmgr1a"], [target + 4, "00c3", "rcmgr1b"]];
-    k.apply(kbase, plist);
-    say("[dbg] debug menu enabled -- go to Settings");
+    var lo = Math.max(0, callOff - 24), hi = Math.min(body.length, callOff + 32);
+    say("[dbg] CALL at handler+0x" + callOff.toString(16) + " -> rva 0x" + target.toString(16));
+    say("[dbg] before: " + hx(body, lo, callOff));
+    say("[dbg] after : " + hx(body, callOff + 5, hi));
   })();
 
   say("[p] Attempting to load goldhen.bin");
