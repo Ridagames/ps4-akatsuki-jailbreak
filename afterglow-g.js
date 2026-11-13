@@ -1505,7 +1505,7 @@ async function attempt(ctx, opts) {
 
   say("[p] Attempting to load debug.bin");
   try {
-    iface.payload = await loadPayload("debug.bin");
+    iface.payload = await loadPayload("goldhen.bin");
     say(iface.payload ? "[p] debug.bin loaded successfully" : "[p] debug.bin failed to load");
   } catch (e) {
     say("[p] Error loading debug.bin: " + (e && e.message));
