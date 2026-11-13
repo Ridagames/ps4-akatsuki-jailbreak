@@ -1485,9 +1485,9 @@ async function attempt(ctx, opts) {
     say("[dbg] after : " + hx(body, callOff + 5, hi));
 
     var jnzRva = fnRva + callOff + 7;
-    var plist = [[jnzRva, "eb", "rcmgr-jnz"]];
+    var plist = [[jnzRva, "74", "rcmgr-jz"]];
     k.apply(kbase, plist);
-    say("[dbg] forced branch at rva 0x" + jnzRva.toString(16) + " (75 -> eb) -- go to Settings");
+    say("[dbg] inverted branch at rva 0x" + jnzRva.toString(16) + " (75 -> 74) -- go to Settings");
 
     var chk = k.read(plus(kbase, jnzRva), 1);
     say("[dbg] byte now: " + (chk ? chk[0].toString(16) : "unreadable"));
