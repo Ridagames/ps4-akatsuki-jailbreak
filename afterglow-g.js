@@ -1487,12 +1487,14 @@ async function attempt(ctx, opts) {
     say("[dbg] after : " + hx(body, callOff + 5, hi));
 
     var jnzRva = fnRva + callOff + 7;
-    var plist = [[jnzRva, "eb", "rcmgr-jnz"]];
+    var testRva = jnzRva - 2;
+    var plist = [[testRva, "31c0", "rcmgr-force-fill"]];
     k.apply(kbase, plist);
-    say("[dbg] forced branch at rva 0x" + jnzRva.toString(16) + " (75 -> eb) -- go to Settings");
+    say("[dbg] neutralised test at rva 0x" + testRva.toString(16)
+        + " (85 c0 -> 31 c0) -- fill block always runs");
 
-    var chk = k.read(plus(kbase, jnzRva), 1);
-    say("[dbg] byte now: " + (chk ? chk[0].toString(16) : "unreadable"));
+    var chk = k.read(plus(kbase, testRva), 2);
+    say("[dbg] bytes now: " + (chk ? (chk[0].toString(16) + " " + chk[1].toString(16)) : "unreadable"));
   })();
 
   say("[p] Attempting to load goldhen.bin");
